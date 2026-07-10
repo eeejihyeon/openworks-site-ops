@@ -64,12 +64,35 @@ export default function HomePage() {
   // 현장별 납품 장비 카운트 (출고완료 상태 shipment의 items 합산)
   const siteEquipmentCounts = useMemo(() => {
     return contractedSites.map((site) => {
-      const count = shipments
-        .filter((sh) => sh.siteId === site.id && sh.status === "출고완료")
-        .reduce((sum, sh) => sum + sh.items.length, 0);
-      return { name: site.name, companyId: site.companyId, count };
+      const byEquipment = new Map<string, { label: string; count: number }>();
+      let count = 0;
+
+      for (const sh of shipments) {
+        if (sh.siteId !== site.id || sh.status !== "출고완료") continue;
+        for (const item of sh.items) {
+          const eq = equipment.find((e) => e.id === item.equipmentId);
+          if (!eq) continue;
+          count += 1;
+          const key = `${eq.category}__${eq.equipmentType ?? ""}`;
+          const label = eq.equipmentType ? `${eq.category} ${eq.equipmentType}` : eq.category;
+          const entry = byEquipment.get(key);
+          if (entry) {
+            entry.count += 1;
+          } else {
+            byEquipment.set(key, { label, count: 1 });
+          }
+        }
+      }
+
+      return {
+        siteId: site.id,
+        name: site.name,
+        companyId: site.companyId,
+        count,
+        byEquipment: Array.from(byEquipment.values()).sort((a, b) => b.count - a.count),
+      };
     });
-  }, [contractedSites, shipments]);
+  }, [contractedSites, shipments, equipment]);
 
   const maxEquipmentCount = useMemo(
     () => Math.max(...siteEquipmentCounts.map((s) => s.count), 1),
@@ -128,6 +151,8 @@ export default function HomePage() {
 
   const [tooltipKey, setTooltipKey] = useState<string | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [siteTooltipKey, setSiteTooltipKey] = useState<string | null>(null);
+  const [siteTooltipPos, setSiteTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const tooltipRef = useRef<HTMLDivElement>(null);
 
   // 현장별 시스템 구축 현황 (계약완료 + systemActive=true, startDate 최신순)
@@ -153,159 +178,119 @@ export default function HomePage() {
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: color.ink }}>대시보드</h1>
         <p style={{ fontSize: 13, color: color.inkMuted, margin: "4px 0 0" }}>종합 현황</p>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr", gap: 16, minHeight: 0 }}>
           {/* 건설사별 현장 리스트 */}
-          <Card>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+          <Card style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
               건설사별 현장 리스트
             </h3>
-            {companySiteList.length === 0 ? (
-              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>데이터가 없습니다.</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {companySiteList.map(({ company, sites: cSites }) => (
-                  <div key={company.id}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background: color.primary,
-                          display: "inline-block",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: color.ink }}>
-                        {company.name}
-                      </span>
-                      <span style={{ fontSize: 11, color: color.inkFaint }}>
-                        {cSites.length}개 현장
-                      </span>
-                    </div>
-                    {cSites.length === 0 ? (
-                      <p
-                        style={{
-                          fontSize: 12,
-                          color: color.inkFaint,
-                          margin: "0 0 0 14px",
-                        }}
-                      >
-                        등록된 현장이 없습니다.
-                      </p>
-                    ) : (
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {companySiteList.length === 0 ? (
+                <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>데이터가 없습니다.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {companySiteList.map(({ company, sites: cSites }) => (
+                    <div key={company.id}>
                       <div
                         style={{
                           display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                          marginLeft: 14,
+                          alignItems: "center",
+                          gap: 6,
+                          marginBottom: 8,
                         }}
                       >
-                        {cSites.map((site) => (
-                          <div
-                            key={site.id}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              fontSize: 12,
-                              padding: "6px 10px",
-                              borderRadius: 6,
-                              background: color.surfaceAlt,
-                              gap: 8,
-                            }}
-                          >
-                            <span
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: color.primary,
+                            display: "inline-block",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: color.ink }}>
+                          {company.name}
+                        </span>
+                        <span style={{ fontSize: 11, color: color.inkFaint }}>
+                          {cSites.length}개 현장
+                        </span>
+                      </div>
+                      {cSites.length === 0 ? (
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: color.inkFaint,
+                            margin: "0 0 0 14px",
+                          }}
+                        >
+                          등록된 현장이 없습니다.
+                        </p>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                            marginLeft: 14,
+                          }}
+                        >
+                          {cSites.map((site) => (
+                            <div
+                              key={site.id}
                               style={{
-                                color: color.ink,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                fontSize: 12,
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                background: color.surfaceAlt,
+                                gap: 8,
                               }}
                             >
-                              {site.name}
-                            </span>
-                            <StatusPill status={site.status} />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                              <span
+                                style={{
+                                  color: color.ink,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {site.name}
+                              </span>
+                              <StatusPill status={site.status} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Card>
 
           {/* 현장별 계약 예정 현황 */}
-          <Card>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+          <Card style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
               현장별 계약 예정 현황
             </h3>
-            {pendingSites.length === 0 ? (
-              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
-                계약 예정 현장이 없습니다.
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {pendingSites.map((site) => (
-                  <div
-                    key={site.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "10px 12px",
-                      borderRadius: 6,
-                      border: `1px solid ${color.border}`,
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
-                      <span style={{ fontWeight: 600, color: color.ink }}>{site.name}</span>
-                      <span style={{ fontSize: 11, color: color.inkFaint }}>
-                        {getCompanyName(site.companyId)} · {site.startDate}
-                      </span>
-                    </div>
-                    <StatusPill status={site.status} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* 현장별 시스템 구축 현황 */}
-          <Card>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
-              현장별 시스템 구축 현황
-            </h3>
-            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
-              계약 완료 · 시스템 사용 현장 기준 (최신순)
-            </p> */}
-            {systemSites.length === 0 ? (
-              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
-                해당 현장이 없습니다.
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {systemSites.map((site) => {
-                  const domainUrl = buildDomainUrl(site.systemDomain);
-                  return (
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {pendingSites.length === 0 ? (
+                <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                  계약 예정 현장이 없습니다.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {pendingSites.map((site) => (
                     <div
                       key={site.id}
                       style={{
@@ -323,138 +308,259 @@ export default function HomePage() {
                         <span style={{ fontWeight: 600, color: color.ink }}>{site.name}</span>
                         <span style={{ fontSize: 11, color: color.inkFaint }}>
                           {getCompanyName(site.companyId)} · {site.startDate}
-                          {site.systemDomain && (
-                            <span style={{ marginLeft: 4 }}>· {site.systemDomain}</span>
-                          )}
                         </span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        {site.systemStatus && <StatusPill status={site.systemStatus} />}
-                        {domainUrl ? (
-                          <a
-                            href={domainUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 3,
-                              fontSize: 12,
-                              color: color.primary,
-                              textDecoration: "none",
-                              padding: "3px 8px",
-                              borderRadius: 4,
-                              border: `1px solid ${color.primary}`,
-                              fontWeight: 500,
-                              transition: "background 0.15s",
-                            }}
-                          >
-                            바로가기 ↗
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: 11, color: color.inkFaint }}>도메인 미설정</span>
-                        )}
-                      </div>
+                      <StatusPill status={site.status} />
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* 현장별 시스템 구축 현황 */}
+          <Card style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
+              현장별 시스템 구축 현황
+            </h3>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {systemSites.length === 0 ? (
+                <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                  해당 현장이 없습니다.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {systemSites.map((site) => {
+                    const domainUrl = buildDomainUrl(site.systemDomain);
+                    return (
+                      <div
+                        key={site.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: 13,
+                          padding: "10px 12px",
+                          borderRadius: 6,
+                          border: `1px solid ${color.border}`,
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                          <span style={{ fontWeight: 600, color: color.ink }}>{site.name}</span>
+                          <span style={{ fontSize: 11, color: color.inkFaint }}>
+                            {getCompanyName(site.companyId)} · {site.startDate}
+                            {site.systemDomain && (
+                              <span style={{ marginLeft: 4 }}>· {site.systemDomain}</span>
+                            )}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          {site.systemStatus && <StatusPill status={site.systemStatus} />}
+                          {domainUrl ? (
+                            <a
+                              href={domainUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3,
+                                fontSize: 12,
+                                color: color.primary,
+                                textDecoration: "none",
+                                padding: "3px 8px",
+                                borderRadius: 4,
+                                border: `1px solid ${color.primary}`,
+                                fontWeight: 500,
+                                transition: "background 0.15s",
+                              }}
+                            >
+                              바로가기 ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 11, color: color.inkFaint }}>도메인 미설정</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </Card>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr", gap: 16, minHeight: 0 }}>
           {/* 현장별 납품 장비 카운트 현황 */}
-          <Card>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+          <Card style={{ position: "relative", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
               현장별 납품 장비 카운트 현황
             </h3>
-            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
-              계약 완료 현장 기준 · 출고 완료된 장비 수량
-            </p> */}
-            {siteEquipmentCounts.length === 0 ? (
-              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
-                계약 완료 현장이 없습니다.
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {siteEquipmentCounts.map((item, idx) => {
-                  const pct = maxEquipmentCount > 0 ? (item.count / maxEquipmentCount) * 100 : 0;
-                  const barColor = BAR_COLORS[idx % BAR_COLORS.length]!;
-                  return (
-                    <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {siteEquipmentCounts.length === 0 ? (
+                <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                  계약 완료 현장이 없습니다.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {siteEquipmentCounts.map((item, idx) => {
+                    const pct = maxEquipmentCount > 0 ? (item.count / maxEquipmentCount) * 100 : 0;
+                    const barColor = BAR_COLORS[idx % BAR_COLORS.length]!;
+                    const isHovered = siteTooltipKey === item.siteId;
+                    return (
                       <div
+                        key={item.siteId}
+                        style={{ display: "flex", alignItems: "center", gap: 12, cursor: "default" }}
+                        onMouseEnter={(e) => {
+                          setSiteTooltipKey(item.siteId);
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setSiteTooltipPos({ x: e.clientX, y: rect.bottom + 6 });
+                        }}
+                        onMouseMove={(e) => {
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setSiteTooltipPos({ x: e.clientX, y: rect.bottom + 6 });
+                        }}
+                        onMouseLeave={() => setSiteTooltipKey(null)}
+                      >
+                        <div
+                          style={{
+                            width: 180,
+                            flexShrink: 0,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 1,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: isHovered ? 700 : 600,
+                              color: isHovered ? barColor : color.ink,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              transition: "color 0.15s",
+                            }}
+                            title={item.name}
+                          >
+                            {item.name}
+                          </span>
+                          <span style={{ fontSize: 11, color: color.inkFaint }}>
+                            {getCompanyName(item.companyId)}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            flex: 1,
+                            height: 10,
+                            background: color.surfaceAlt,
+                            borderRadius: 5,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${pct}%`,
+                              height: "100%",
+                              background: isHovered ? barColor : barColor + "CC",
+                              borderRadius: 5,
+                              transition: "background 0.15s, width 0.4s ease",
+                              minWidth: item.count > 0 ? 4 : 0,
+                            }}
+                          />
+                        </div>
+                        <span
+                          style={{
+                            width: 36,
+                            textAlign: "right",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: isHovered ? barColor : item.count > 0 ? barColor : color.inkFaint,
+                            flexShrink: 0,
+                            transition: "color 0.15s",
+                          }}
+                        >
+                          {item.count}대
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {siteTooltipKey &&
+              (() => {
+                const hovered = siteEquipmentCounts.find((s) => s.siteId === siteTooltipKey);
+                if (!hovered || hovered.byEquipment.length === 0) return null;
+                return (
+                  <div
+                    style={{
+                      position: "fixed",
+                      left: siteTooltipPos.x,
+                      top: siteTooltipPos.y,
+                      zIndex: 100,
+                      background: color.ink,
+                      color: "#fff",
+                      borderRadius: 8,
+                      padding: "10px 14px",
+                      fontSize: 12,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                      pointerEvents: "none",
+                      minWidth: 160,
+                      transform: "translateX(-50%)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
+                      {hovered.name}
+                    </div>
+                    {hovered.byEquipment.map(({ label, count }) => (
+                      <div
+                        key={label}
                         style={{
-                          width: 180,
-                          flexShrink: 0,
                           display: "flex",
-                          flexDirection: "column",
-                          gap: 1,
+                          justifyContent: "space-between",
+                          gap: 16,
+                          padding: "3px 0",
+                          borderBottom: "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
                         <span
                           style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: color.ink,
+                            color: "rgba(255,255,255,0.75)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            maxWidth: 140,
                           }}
-                          title={item.name}
                         >
-                          {item.name}
+                          {label}
                         </span>
-                        <span style={{ fontSize: 11, color: color.inkFaint }}>
-                          {getCompanyName(item.companyId)}
-                        </span>
+                        <span style={{ fontWeight: 600, flexShrink: 0 }}>{count}대</span>
                       </div>
-                      <div
-                        style={{
-                          flex: 1,
-                          height: 10,
-                          background: color.surfaceAlt,
-                          borderRadius: 5,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${pct}%`,
-                            height: "100%",
-                            background: barColor,
-                            borderRadius: 5,
-                            transition: "width 0.4s ease",
-                            minWidth: item.count > 0 ? 4 : 0,
-                          }}
-                        />
-                      </div>
-                      <span
-                        style={{
-                          width: 36,
-                          textAlign: "right",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: item.count > 0 ? barColor : color.inkFaint,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {item.count}대
-                      </span>
+                    ))}
+                    <div
+                      style={{
+                        marginTop: 8,
+                        paddingTop: 6,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <span>합계</span>
+                      <span>{hovered.count}대</span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })()}
           </Card>
           {/* 장비별 납품 현황 */}
-          <Card style={{ position: "relative" }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+          <Card style={{ position: "relative", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
               장비별 납품 현황
             </h3>
-            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
-              출고 완료 기준 · 행에 마우스를 올리면 현장별 수량을 확인할 수 있습니다
-            </p> */}
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             {equipmentDeliveryStats.length === 0 ? (
               <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
                 출고 완료 데이터가 없습니다.
@@ -534,6 +640,7 @@ export default function HomePage() {
                 })}
               </div>
             )}
+            </div>
             {/* 툴팁 */}
             {tooltipKey &&
               (() => {
@@ -603,11 +710,11 @@ export default function HomePage() {
               })()}
           </Card>
           {/* 최근 출고 */}
-          <Card>
-            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+          <Card style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink, flexShrink: 0 }}>
               최근 출고
             </h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
               {recentShipments.length === 0 ? (
                 <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
                   출고 완료된 이력이 없습니다.

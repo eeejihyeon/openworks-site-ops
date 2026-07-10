@@ -158,7 +158,18 @@ const Main = styled.main({
   background: color.bg,
   padding: "24px 32px",
   minWidth: 0,
-  minHeight: "100vh",
+  height: "100vh",
+  display: "flex",
+  flexDirection: "column",
+  boxSizing: "border-box",
+  overflow: "hidden",
+});
+
+const OutletWrapper = styled.div({
+  flex: 1,
+  minHeight: 0,
+  overflowY: "auto",
+  paddingBottom: 8,
 });
 
 const Header = styled.header({
@@ -275,7 +286,9 @@ export function AppLayout() {
             </LogoutBtn>
           </UserChip>
         </Header>
-        <Outlet />
+        <OutletWrapper>
+          <Outlet />
+        </OutletWrapper>
       </Main>
     </Shell>
   );

@@ -2,6 +2,8 @@ import {
   Button,
   CodeTag,
   DataTable,
+  ExpandedInner,
+  InfoLabel,
   MonoCell,
   PageDescription,
   PageHeader,
@@ -17,7 +19,7 @@ import { useCompanies } from "@/features/companies/queries";
 import { useEquipmentCategories, useEquipmentList } from "@/features/equipment/queries";
 import { useSites } from "@/features/sites/queries";
 import { useUsers } from "@/features/users/queries";
-import type { ShipmentRow, ShipmentStatus } from "@/lib/mock/db";
+import type { EquipmentRow, ShipmentRow, ShipmentStatus } from "@/lib/mock/db";
 
 import { useCreateShipment, useDeleteShipment, useShipments, useUpdateShipment } from "../queries";
 import type { ShipmentFormValues } from "../schema";
@@ -65,6 +67,170 @@ function isDeliveryUrgent(deliveryRequestedAt?: string, completedAt?: string): b
   return diffDays <= 1; // 하루 전(1), 당일(0), 지남(<0) 모두 포함
 }
 
+type EquipmentGroup = {
+  key: string;
+  label: string;
+  count: number;
+  locations: string[];
+};
+
+function getShipmentEquipmentGroups(row: ShipmentRow, equipment: EquipmentRow[]): EquipmentGroup[] {
+  if (row.status === "요청" && row.requestItems?.length) {
+    return row.requestItems
+      .filter((item) => item.category && item.equipmentType)
+      .map((item) => ({
+        key: `${item.category}|${item.equipmentType}`,
+        label: `${item.category} · ${item.equipmentType}`,
+        count: item.quantity,
+        locations: [],
+      }));
+  }
+
+  const groupMap = new Map<string, EquipmentGroup>();
+  for (const item of row.items ?? []) {
+    const eq = equipment.find((e) => e.id === item.equipmentId);
+    if (!eq) continue;
+    const key = `${eq.category}|${eq.equipmentType ?? ""}`;
+    const label = eq.equipmentType ? `${eq.category} · ${eq.equipmentType}` : eq.category;
+    const existing = groupMap.get(key);
+    if (existing) {
+      existing.count += 1;
+      const loc = item.installLocation?.trim();
+      if (loc && !existing.locations.includes(loc)) existing.locations.push(loc);
+    } else {
+      const loc = item.installLocation?.trim();
+      groupMap.set(key, {
+        key,
+        label,
+        count: 1,
+        locations: loc ? [loc] : [],
+      });
+    }
+  }
+
+  return Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
+}
+
+function getEquipmentSummary(groups: EquipmentGroup[]) {
+  const total = groups.reduce((sum, group) => sum + group.count, 0);
+  const preview = groups
+    .slice(0, 2)
+    .map((group) => group.label)
+    .join(", ");
+  const restKinds = Math.max(groups.length - 2, 0);
+  return { total, kindCount: groups.length, preview, restKinds };
+}
+
+function EquipmentSummaryCell({ groups }: { groups: EquipmentGroup[] }) {
+  const summary = getEquipmentSummary(groups);
+  if (groups.length === 0) {
+    return <span style={{ color: color.inkFaint }}>-</span>;
+  }
+
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: "13px", fontWeight: 600, color: color.ink }}>
+        {summary.kindCount}종 · 총 {summary.total}대
+      </div>
+      <div
+        style={{
+          fontSize: "11px",
+          color: color.inkMuted,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          maxWidth: "180px",
+        }}
+        title={groups.map((group) => `${group.label} ${group.count}대`).join(" / ")}
+      >
+        {summary.preview}
+        {summary.restKinds > 0 ? ` 외 ${summary.restKinds}종` : ""}
+      </div>
+    </div>
+  );
+}
+
+function ShipmentEquipmentDetail({
+  row,
+  equipment,
+}: {
+  row: ShipmentRow;
+  equipment: EquipmentRow[];
+}) {
+  const groups = getShipmentEquipmentGroups(row, equipment);
+  const isRequest = row.status === "요청";
+
+  if (groups.length === 0) return null;
+
+  const gridColumns = isRequest
+    ? "minmax(70px, 0.33fr) minmax(80px, 96px)"
+    : "minmax(70px, 0.33fr) minmax(80px, 96px) minmax(120px, 1fr)";
+  const rowDivider = `1px solid rgba(15, 27, 62, 0.07)`;
+
+  return (
+    <ExpandedInner>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: gridColumns,
+            gap: "10px 20px",
+            alignItems: "baseline",
+            paddingBottom: 8,
+          }}
+        >
+          <InfoLabel>종류</InfoLabel>
+          <InfoLabel>수량</InfoLabel>
+          {!isRequest && <InfoLabel>설치 위치</InfoLabel>}
+        </div>
+
+        {groups.map((group, index) => (
+          <div
+            key={group.key}
+            style={{
+              display: "grid",
+              gridTemplateColumns: gridColumns,
+              gap: "10px 20px",
+              alignItems: "baseline",
+              padding: "10px 0",
+              borderTop: index === 0 ? undefined : rowDivider,
+            }}
+          >
+            <span
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: color.ink,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={group.label}
+            >
+              {group.label}
+            </span>
+            <span
+              style={{
+                fontSize: "13px",
+                fontWeight: 700,
+                color: isRequest ? "#854D0E" : color.primary,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {group.count}대
+            </span>
+            {!isRequest && (
+              <span style={{ fontSize: "12px", color: color.inkMuted }}>
+                {group.locations.length > 0 ? group.locations.join(", ") : "—"}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </ExpandedInner>
+  );
+}
+
 export default function ShipmentsListPage() {
   const { data: shipments = [], isLoading } = useShipments();
   const { data: sites = [] } = useSites();
@@ -79,8 +245,16 @@ export default function ShipmentsListPage() {
 
   const [editing, setEditing] = useState<ShipmentRow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "-";
+
+  const getGroupsForRow = (row: ShipmentRow) => getShipmentEquipmentGroups(row, equipment);
+
+  const handleRowClick = (row: ShipmentRow) => {
+    if (getGroupsForRow(row).length === 0) return;
+    setExpandedId((prev) => (prev === row.id ? null : row.id));
+  };
 
   // 출고요청 상태 항목을 항상 맨 위에 정렬, 나머지는 기존 순서 유지
   const sortedShipments = useMemo(() => {
@@ -181,77 +355,8 @@ export default function ShipmentsListPage() {
     {
       key: "items",
       header: "장비",
-      render: (r) => {
-        // 출고요청 상태 → requestItems 요약 표시
-        if (r.status === "요청" && r.requestItems?.length) {
-          return (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {r.requestItems.map(({ category, equipmentType, quantity }) => (
-                <span
-                  key={`${category}|${equipmentType}`}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "3px",
-                    fontSize: "12px",
-                    background: "#FEF9C3",
-                    color: "#854D0E",
-                    border: "1px solid #FDE68A",
-                    borderRadius: radius.pill,
-                    padding: "2px 9px",
-                    whiteSpace: "nowrap",
-                    fontWeight: 500,
-                  }}
-                >
-                  {category}
-                  {equipmentType && (
-                    <span style={{ color: "#A16207", fontWeight: 400 }}>·{equipmentType}</span>
-                  )}
-                  <strong style={{ fontWeight: 700, marginLeft: "2px" }}>{quantity}</strong>
-                </span>
-              ))}
-            </div>
-          );
-        }
-
-        // 출고준비/완료 → 실제 장비 그룹 요약
-        const groupMap: Record<string, { cat: string; type: string; count: number }> = {};
-        for (const it of r.items ?? []) {
-          const eq = equipment.find((e) => e.id === it.equipmentId);
-          if (!eq) continue;
-          const key = `${eq.category}|${eq.equipmentType ?? ""}`;
-          if (groupMap[key]) groupMap[key].count += 1;
-          else groupMap[key] = { cat: eq.category, type: eq.equipmentType ?? "", count: 1 };
-        }
-        const groups = Object.values(groupMap);
-        if (groups.length === 0) return <span style={{ color: color.inkFaint }}>-</span>;
-        return (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-            {groups.map(({ cat, type, count }) => (
-              <span
-                key={`${cat}|${type}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "3px",
-                  fontSize: "12px",
-                  background: color.primarySoft,
-                  color: color.primary,
-                  border: `1px solid ${color.borderStrong}`,
-                  borderRadius: radius.pill,
-                  padding: "2px 9px",
-                  whiteSpace: "nowrap",
-                  fontWeight: 500,
-                }}
-              >
-                {cat}
-                {type && <span style={{ color: color.inkMuted, fontWeight: 400 }}>·{type}</span>}
-                <strong style={{ fontWeight: 700, marginLeft: "2px" }}>{count}</strong>
-              </span>
-            ))}
-          </div>
-        );
-      },
+      width: "200px",
+      render: (r) => <EquipmentSummaryCell groups={getGroupsForRow(r)} />,
     },
     {
       key: "installLocation",
@@ -320,7 +425,10 @@ export default function ShipmentsListPage() {
       header: "",
       align: "right",
       render: (r) => (
-        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <div
+          style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <Button size="sm" variant="secondary" onClick={() => setEditing(r)}>
             수정
           </Button>
@@ -364,6 +472,11 @@ export default function ShipmentsListPage() {
         rows={sortedShipments}
         rowKey={(r) => r.id}
         emptyMessage={isLoading ? "불러오는 중..." : "등록된 출고 내역이 없습니다."}
+        expandable
+        expandedRowKey={expandedId}
+        canExpandRow={(row) => getGroupsForRow(row).length > 0}
+        onRowClick={handleRowClick}
+        renderExpandedRow={(row) => <ShipmentEquipmentDetail row={row} equipment={equipment} />}
       />
 
       {creating && (

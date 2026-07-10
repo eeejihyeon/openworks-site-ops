@@ -188,7 +188,7 @@ function revertEquipmentStatus(equipmentIds: string[], excludeShipmentId?: strin
   }
 }
 
-/** 상태에 따라 날짜 필드를 자동 설정 (첫 진입 시 기록) */
+/** 상태에 따라 날짜 필드를 자동 설정 (첫 진입 시 기록, 상태 되돌리면 해당 일자 제거) */
 function buildStatusDates(
   status: ShipmentStatus,
   existing: { requestedAt?: string; preparedAt?: string; completedAt?: string } = {},
@@ -199,8 +199,8 @@ function buildStatusDates(
     preparedAt:
       status === "출고준비" || status === "출고완료"
         ? (existing.preparedAt ?? today)
-        : existing.preparedAt,
-    completedAt: status === "출고완료" ? (existing.completedAt ?? today) : existing.completedAt,
+        : undefined,
+    completedAt: status === "출고완료" ? (existing.completedAt ?? today) : undefined,
   };
 }
 

@@ -45,8 +45,15 @@ const ManagerRow = styled.div({
   display: "grid",
   gridTemplateColumns: "1fr 1fr auto",
   gap: space.sm,
-  alignItems: "end",
+  alignItems: "start",
 });
+
+const RemoveButtonCell = styled.div<{ $hasLabel?: boolean }>(({ $hasLabel }) => ({
+  display: "flex",
+  alignItems: "center",
+  height: "36px",
+  marginTop: $hasLabel ? "26px" : 0,
+}));
 
 const AddButton = styled.button({
   display: "inline-flex",
@@ -81,7 +88,6 @@ const RemoveButton = styled.button({
   borderRadius: radius.md,
   cursor: "pointer",
   transition: "color 0.15s, border-color 0.15s",
-  marginBottom: "0px",
   "&:hover": {
     color: color.danger,
     borderColor: color.danger,
@@ -249,6 +255,7 @@ export function SiteFormModal({
                   <ManagerRow key={field.id}>
                     <FormField
                       label={index === 0 ? "이름" : undefined}
+                      required={index === 0}
                       error={errors.siteManagers?.[index]?.name?.message}
                     >
                       <Input
@@ -265,23 +272,17 @@ export function SiteFormModal({
                         placeholder="010-0000-0000"
                       />
                     </FormField>
-                    <RemoveButton
-                      type="button"
-                      onClick={() => removeSiteManager(index)}
-                      disabled={siteManagerFields.length === 1}
-                      title="삭제"
-                      style={
-                        siteManagerFields.length === 1
-                          ? {
-                              opacity: 0.3,
-                              cursor: "not-allowed",
-                              marginTop: index === 0 ? "20px" : "0",
-                            }
-                          : { marginTop: index === 0 ? "20px" : "0" }
-                      }
-                    >
-                      ×
-                    </RemoveButton>
+                    <RemoveButtonCell $hasLabel={index === 0}>
+                      <RemoveButton
+                        type="button"
+                        onClick={() => removeSiteManager(index)}
+                        disabled={siteManagerFields.length === 1}
+                        title="삭제"
+                        style={siteManagerFields.length === 1 ? { opacity: 0.3, cursor: "not-allowed" } : undefined}
+                      >
+                        ×
+                      </RemoveButton>
+                    </RemoveButtonCell>
                   </ManagerRow>
                 ))}
                 {siteManagerFields.length < MAX_MANAGERS && (
@@ -329,6 +330,7 @@ export function SiteFormModal({
                     <ManagerRow key={field.id}>
                       <FormField
                         label={index === 0 ? "담당자" : undefined}
+                        required={index === 0}
                         error={errors.salesManagers?.[index]?.name?.message}
                       >
                         <Controller
@@ -355,31 +357,30 @@ export function SiteFormModal({
                       </FormField>
                       <FormField
                         label={index === 0 ? "연락처" : undefined}
-                        hint={autoFilled ? "자동 입력" : undefined}
                         error={errors.salesManagers?.[index]?.phone?.message}
                       >
                         <Input
                           {...register(`salesManagers.${index}.phone`)}
                           placeholder={autoFilled ? "" : "010-0000-0000"}
+                          readOnly={autoFilled}
+                          style={autoFilled ? { background: color.surfaceAlt, color: color.inkMuted } : undefined}
                         />
                       </FormField>
-                      <RemoveButton
-                        type="button"
-                        onClick={() => removeSalesManager(index)}
-                        disabled={salesManagerFields.length === 1}
-                        title="삭제"
-                        style={
-                          salesManagerFields.length === 1
-                            ? {
-                                opacity: 0.3,
-                                cursor: "not-allowed",
-                                marginTop: index === 0 ? "20px" : "0",
-                              }
-                            : { marginTop: index === 0 ? "20px" : "0" }
-                        }
-                      >
-                        ×
-                      </RemoveButton>
+                      <RemoveButtonCell $hasLabel={index === 0}>
+                        <RemoveButton
+                          type="button"
+                          onClick={() => removeSalesManager(index)}
+                          disabled={salesManagerFields.length === 1}
+                          title="삭제"
+                          style={
+                            salesManagerFields.length === 1
+                              ? { opacity: 0.3, cursor: "not-allowed" }
+                              : undefined
+                          }
+                        >
+                          ×
+                        </RemoveButton>
+                      </RemoveButtonCell>
                     </ManagerRow>
                   );
                 })}

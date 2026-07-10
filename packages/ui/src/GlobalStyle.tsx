@@ -1,6 +1,6 @@
 import { Global, css } from "@emotion/react";
 
-import { color, font } from "./theme";
+import { color, font, radius } from "./theme";
 
 export function GlobalStyle() {
   return (
@@ -10,6 +10,8 @@ export function GlobalStyle() {
 
         * {
           box-sizing: border-box;
+          scrollbar-width: thin;
+          scrollbar-color: ${color.border} transparent;
         }
 
         html,
@@ -45,6 +47,38 @@ export function GlobalStyle() {
         :focus-visible {
           outline: 2px solid ${color.accent};
           outline-offset: 2px;
+        }
+
+        *::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+
+        *::-webkit-scrollbar-button {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+
+        *::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        *::-webkit-scrollbar-thumb {
+          background: ${color.border};
+          border-radius: ${radius.pill};
+          border: 1px solid transparent;
+          background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-thumb:hover {
+          background: ${color.borderStrong};
+          border: 1px solid transparent;
+          background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-corner {
+          background: transparent;
         }
 
         @media (prefers-reduced-motion: reduce) {

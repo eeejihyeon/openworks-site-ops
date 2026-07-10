@@ -2,24 +2,30 @@ import styled from "@emotion/styled";
 import {
   Button,
   CodeTag,
+  ClickableTr,
   EmptyRow,
+  ExpandedInner,
+  ExpandedSection,
+  ExpandedTd,
+  InfoItem,
+  InfoLabel,
+  InfoValue,
   MonoCell,
   PageDescription,
   PageHeader,
   PageTitle,
   Row,
+  SectionDivider,
   StyledTable,
+  TableChevron,
   TableWrap,
   Td,
   Thead,
   Toolbar,
-  Tr,
   color,
-  font,
   radius,
-  space,
 } from "@facility/ui";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { useShipments } from "@/features/shipments/queries";
 import { useSites } from "@/features/sites/queries";
@@ -93,97 +99,6 @@ const NoLink = styled.span({
   fontSize: "12px",
   color: color.inkFaint,
 });
-
-// ---------- 아코디언 확장 패널 ----------
-
-const ExpandedTd = styled.td({
-  background: color.surface,
-  borderBottom: `1px solid ${color.border}`,
-  borderLeft: `3px solid ${color.primary}`,
-  padding: `${space.lg} ${space.xl}`,
-});
-
-const ExpandedInner = styled.div({
-  display: "flex",
-  flexDirection: "column",
-  gap: space.md,
-});
-
-const ExpandedSection = styled.div({
-  display: "flex",
-  flexWrap: "wrap",
-  gap: `${space.xs} ${space.xl}`,
-  alignItems: "baseline",
-});
-
-const InfoItem = styled.div({
-  display: "flex",
-  alignItems: "baseline",
-  gap: space.sm,
-  minWidth: 0,
-});
-
-const InfoLabel = styled.span({
-  fontSize: "11px",
-  fontWeight: 600,
-  color: color.inkFaint,
-  letterSpacing: "0.03em",
-  whiteSpace: "nowrap",
-  flexShrink: 0,
-});
-
-const InfoValue = styled.span({
-  fontSize: "13px",
-  color: color.inkMuted,
-  fontFamily: font.mono,
-});
-
-const SectionDivider = styled.div({
-  borderTop: `1px solid ${color.border}`,
-});
-
-const ShipmentRow = styled.div({
-  display: "flex",
-  alignItems: "center",
-  gap: space.md,
-  fontSize: "13px",
-  color: color.ink,
-});
-
-const ShipmentField = styled.span({
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  color: color.inkMuted,
-  "& strong": {
-    color: color.ink,
-    fontWeight: 600,
-  },
-});
-
-const Dot = styled.span({
-  width: 3,
-  height: 3,
-  borderRadius: "50%",
-  background: color.borderStrong,
-  flexShrink: 0,
-});
-
-// ---------- 테이블 행 ----------
-
-const ClickableTr = styled(Tr)({
-  cursor: "pointer",
-  userSelect: "none",
-});
-
-const ChevronSpan = styled.span<{ open: boolean }>(({ open }) => ({
-  display: "inline-block",
-  fontSize: "10px",
-  color: color.inkFaint,
-  transition: "transform 180ms ease",
-  transform: open ? "rotate(90deg)" : "rotate(0deg)",
-  marginRight: "4px",
-}));
 
 // ---------- 필터 ----------
 
@@ -348,10 +263,10 @@ export default function EquipmentListPage() {
                 const shipInfo = r.status === "출고완료" ? getShipmentInfo(r.id) : null;
 
                 return (
-                  <>
-                    <ClickableTr key={r.id} onClick={() => toggleExpand(r.id)}>
+                  <Fragment key={r.id}>
+                    <ClickableTr $selected={isExpanded} onClick={() => toggleExpand(r.id)}>
                       <Td style={{ width: "16px", paddingRight: 0 }}>
-                        <ChevronSpan open={isExpanded}>▶</ChevronSpan>
+                        <TableChevron $open={isExpanded}>▶</TableChevron>
                       </Td>
                       <Td>{r.category}</Td>
                       <Td>
@@ -419,7 +334,7 @@ export default function EquipmentListPage() {
                     </ClickableTr>
 
                     {isExpanded && (
-                      <tr key={`${r.id}-detail`}>
+                      <tr>
                         <ExpandedTd colSpan={COLS + 1}>
                           <ExpandedInner>
                             {/* 네트워크 연결 정보 */}
@@ -490,7 +405,7 @@ export default function EquipmentListPage() {
                         </ExpandedTd>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })
             )}
