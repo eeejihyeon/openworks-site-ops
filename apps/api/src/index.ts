@@ -51,6 +51,22 @@ if (IS_PROD) {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`API server → http://localhost:${PORT}`);
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`API server listening on 0.0.0.0:${PORT}`);
+  console.log(`NODE_ENV=${process.env.NODE_ENV ?? "undefined"} DB_PATH=${process.env.DB_PATH ?? "default"}`);
+});
+
+server.on("error", (err) => {
+  console.error("Server failed to start:", err);
+  process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
+  process.exit(1);
 });

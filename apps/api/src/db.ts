@@ -6,9 +6,22 @@ import bcrypt from "bcryptjs";
 import Database from "better-sqlite3";
 
 const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), "data", "facility.db");
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-const db = new Database(DB_PATH);
+try {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+} catch (err) {
+  console.error(`Failed to create DB directory (${path.dirname(DB_PATH)}):`, err);
+  throw err;
+}
+
+let db: Database.Database;
+try {
+  db = new Database(DB_PATH);
+  console.log(`SQLite connected: ${DB_PATH}`);
+} catch (err) {
+  console.error(`Failed to open SQLite database (${DB_PATH}):`, err);
+  throw err;
+}
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
