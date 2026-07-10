@@ -497,6 +497,11 @@ for (const sql of columnMigrations) {
   }
 }
 
+// 이메일 미입력 시 빈 문자열("")이 UNIQUE 충돌을 일으키지 않도록 NULL로 정규화
+try {
+  db.exec(`UPDATE users SET email = NULL WHERE email = ''`);
+} catch { /* 무시 */ }
+
 // shipment_request_items 테이블은 CREATE TABLE IF NOT EXISTS로 이미 처리됨
 
 seed();
