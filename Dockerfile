@@ -29,5 +29,6 @@ COPY . .
 RUN pnpm build
 
 ENV NODE_ENV=production
+WORKDIR /app
 EXPOSE 4000
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["node", "/app/apps/api/dist/index.js"]

@@ -42,12 +42,24 @@ app.get("/api/health", (_req, res) => {
 
 // ── Static (production: React 빌드 결과물 서빙) ────────────────────────────────
 if (IS_PROD) {
-  const WEB_DIST = path.join(process.cwd(), "apps", "web", "dist");
-  if (fs.existsSync(WEB_DIST)) {
+  // Railway가 apps/api에서 실행할 수 있으므로 cwd와 무관하게 후보 경로를 탐색
+  const candidates = [
+    path.join(process.cwd(), "apps", "web", "dist"),
+    path.join(process.cwd(), "..", "web", "dist"),
+    path.join(__dirname, "..", "..", "web", "dist"),
+    path.join(__dirname, "..", "..", "..", "web", "dist"),
+    "/app/apps/web/dist",
+  ];
+  const WEB_DIST = candidates.find((p) => fs.existsSync(path.join(p, "index.html")));
+
+  if (WEB_DIST) {
+    console.log(`Serving web dist from: ${WEB_DIST}`);
     app.use(express.static(WEB_DIST));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(WEB_DIST, "index.html"));
     });
+  } else {
+    console.warn("Web dist not found. Tried:", candidates);
   }
 }
 
