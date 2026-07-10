@@ -1,17 +1,18 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import db from "../db";
 
 type Row = Record<string, unknown>;
+type SiteParams = { siteId: string };
 
 const router = Router({ mergeParams: true });
 
-router.get("/", (req, res) => {
+router.get("/", (req: Request<SiteParams>, res) => {
   const { siteId } = req.params;
   const row = db.prepare("SELECT * FROM system_infos WHERE siteId = ?").get(siteId) as Row | undefined;
   res.json(row ?? { siteId, operationInfo: "", developerType: "자체개발", developerName: "" });
 });
 
-router.put("/", (req, res) => {
+router.put("/", (req: Request<SiteParams>, res) => {
   const { siteId } = req.params;
   const { operationInfo = "", developerType = "자체개발", developerName = "" } = req.body as Record<string, string>;
   const existing = db.prepare("SELECT 1 FROM system_infos WHERE siteId = ?").get(siteId);
