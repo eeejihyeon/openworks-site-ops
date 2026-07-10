@@ -1,28 +1,33 @@
-FROM node:20-slim
+FROM node:20-bookworm-slim
 
-# better-sqlite3 네이티브 모듈 컴파일에 필요한 빌드 도구
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+# better-sqlite3 네이티브 컴파일 도구
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@10
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 
 WORKDIR /app
 
-# 의존성 파일 먼저 복사 (레이어 캐시 활용)
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY packages/ui/package.json ./packages/ui/
 
-RUN pnpm install --frozen-lockfile
+# 소스에서 강제 빌드 (prebuild 바이너리 의존 금지)
+ENV npm_config_build_from_source=true
 
-# 소스 복사 후 빌드
+RUN pnpm install --frozen-lockfile \
+  && pnpm rebuild better-sqlite3 \
+  && BINDING="$(find /app/node_modules -name 'better_sqlite3.node' | head -n 1)" \
+  && echo "Found binding: $BINDING" \
+  && test -n "$BINDING" \
+  && cd apps/api \
+  && node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); console.log('better-sqlite3 runtime ok'); db.close();"
+
 COPY . .
 RUN pnpm build
 
-# 런타임에서 better-sqlite3 로딩 확인 (빌드 단계에서 실패시키기)
-RUN node -e "require('better-sqlite3'); console.log('better-sqlite3 ok')"
-
 ENV NODE_ENV=production
-
 EXPOSE 4000
 CMD ["node", "apps/api/dist/index.js"]
