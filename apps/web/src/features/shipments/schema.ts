@@ -11,6 +11,7 @@ export const shipmentRequestItemSchema = z.object({
 
 export const shipmentItemSchema = z.object({
   equipmentId: z.string().min(1, "장비를 선택하세요"),
+  installLocation: z.string().optional().default(""),
 });
 
 export const shipmentSchema = z.object({

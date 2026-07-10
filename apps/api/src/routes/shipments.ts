@@ -13,8 +13,8 @@ function getShipmentWithItems(id: string) {
   if (!shipment) return undefined;
 
   const items = db
-    .prepare("SELECT equipmentId FROM shipment_items WHERE shipmentId = ?")
-    .all(id) as { equipmentId: string }[];
+    .prepare("SELECT equipmentId, installLocation FROM shipment_items WHERE shipmentId = ?")
+    .all(id) as { equipmentId: string; installLocation: string }[];
 
   const requestItems = db
     .prepare(
@@ -24,7 +24,7 @@ function getShipmentWithItems(id: string) {
 
   return {
     ...shipment,
-    items: items.map((it) => ({ equipmentId: it.equipmentId })),
+    items: items.map((it) => ({ equipmentId: it.equipmentId, installLocation: it.installLocation })),
     requestItems,
   };
 }
@@ -76,8 +76,8 @@ router.get("/", (req, res) => {
 
   const result = rows.map((s) => {
     const items = db
-      .prepare("SELECT equipmentId FROM shipment_items WHERE shipmentId = ?")
-      .all(s.id as string) as { equipmentId: string }[];
+      .prepare("SELECT equipmentId, installLocation FROM shipment_items WHERE shipmentId = ?")
+      .all(s.id as string) as { equipmentId: string; installLocation: string }[];
     const requestItems = db
       .prepare(
         "SELECT category, equipmentType, quantity FROM shipment_request_items WHERE shipmentId = ?"
@@ -85,7 +85,7 @@ router.get("/", (req, res) => {
       .all(s.id as string) as { category: string; equipmentType: string; quantity: number }[];
     return {
       ...s,
-      items: items.map((it) => ({ equipmentId: it.equipmentId })),
+      items: items.map((it) => ({ equipmentId: it.equipmentId, installLocation: it.installLocation })),
       requestItems,
     };
   });
@@ -97,7 +97,7 @@ router.post("/", (req, res) => {
   const id = genId("SH");
   const b = req.body as Record<string, unknown>;
   const status = ((b.status as string) || "요청") as ShipmentStatus;
-  const items = (b.items ?? []) as { equipmentId: string }[];
+  const items = (b.items ?? []) as { equipmentId: string; installLocation?: string }[];
   const requestItems = (b.requestItems ?? []) as {
     category: string;
     equipmentType: string;
@@ -131,9 +131,9 @@ router.post("/", (req, res) => {
     );
 
     const iItem = db.prepare(
-      "INSERT INTO shipment_items (shipmentId, equipmentId) VALUES (?, ?)"
+      "INSERT INTO shipment_items (shipmentId, equipmentId, installLocation) VALUES (?, ?, ?)"
     );
-    for (const item of items) iItem.run(id, item.equipmentId);
+    for (const item of items) iItem.run(id, item.equipmentId, item.installLocation ?? "");
 
     const iReqItem = db.prepare(
       "INSERT INTO shipment_request_items (shipmentId, category, equipmentType, quantity) VALUES (?,?,?,?)"
@@ -159,7 +159,7 @@ router.put("/:id", (req, res) => {
 
   const b = req.body as Record<string, unknown>;
   const status = ((b.status as string) || (existing.status as string) || "요청") as ShipmentStatus;
-  const newItems = (b.items ?? []) as { equipmentId: string }[];
+  const newItems = (b.items ?? []) as { equipmentId: string; installLocation?: string }[];
   const newRequestItems = (b.requestItems ?? []) as {
     category: string;
     equipmentType: string;
@@ -201,9 +201,9 @@ router.put("/:id", (req, res) => {
     // 실제 출고 장비 교체
     db.prepare("DELETE FROM shipment_items WHERE shipmentId = ?").run(req.params.id);
     const iItem = db.prepare(
-      "INSERT INTO shipment_items (shipmentId, equipmentId) VALUES (?, ?)"
+      "INSERT INTO shipment_items (shipmentId, equipmentId, installLocation) VALUES (?, ?, ?)"
     );
-    for (const item of newItems) iItem.run(req.params.id, item.equipmentId);
+    for (const item of newItems) iItem.run(req.params.id, item.equipmentId, item.installLocation ?? "");
 
     // 요청 항목 교체
     db.prepare("DELETE FROM shipment_request_items WHERE shipmentId = ?").run(req.params.id);

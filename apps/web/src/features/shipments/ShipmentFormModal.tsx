@@ -41,7 +41,7 @@ export interface ShipmentFormModalProps {
 }
 
 // 실제 출고 장비 행 (출고준비/출고완료)
-type EquipmentRowItem = { _key: string; equipmentId: string };
+type EquipmentRowItem = { _key: string; equipmentId: string; installLocation: string };
 
 // 출고 요청 항목 행 (요청)
 type RequestRowItem = {
@@ -82,6 +82,7 @@ function initCatRows(
         (result[eq.category] as EquipmentRowItem[]).push({
           _key: `${eq.category}-${Math.random().toString(36).slice(2)}`,
           equipmentId: item.equipmentId,
+          installLocation: item.installLocation ?? "",
         });
       }
     }
@@ -149,9 +150,7 @@ export function ShipmentFormModal({
   }, [equipment]);
 
   // 이미 선택된 category+type 조합
-  const takenRequestKeys = new Set(
-    requestRows.map((r) => `${r.category}|${r.equipmentType}`)
-  );
+  const takenRequestKeys = new Set(requestRows.map((r) => `${r.category}|${r.equipmentType}`));
 
   // 수정 모드 시 기존 출고건에 포함된 장비 ID (출고완료여도 선택 유지)
   const initialEquipmentIds = new Set(initial?.items.map((i) => i.equipmentId) ?? []);
@@ -184,7 +183,11 @@ export function ShipmentFormModal({
       ...prev,
       [category]: [
         ...(prev[category] ?? []),
-        { _key: `${category}-${Date.now()}-${Math.random()}`, equipmentId: "" },
+        {
+          _key: `${category}-${Date.now()}-${Math.random()}`,
+          equipmentId: "",
+          installLocation: "",
+        },
       ],
     }));
   };
@@ -194,10 +197,14 @@ export function ShipmentFormModal({
       [category]: (prev[category] ?? []).filter((r) => r._key !== key),
     }));
   };
-  const updateEquipmentRow = (category: string, key: string, equipmentId: string) => {
+  const updateEquipmentRow = (
+    category: string,
+    key: string,
+    patch: Partial<Omit<EquipmentRowItem, "_key">>
+  ) => {
     setCatRows((prev) => ({
       ...prev,
-      [category]: (prev[category] ?? []).map((r) => (r._key === key ? { ...r, equipmentId } : r)),
+      [category]: (prev[category] ?? []).map((r) => (r._key === key ? { ...r, ...patch } : r)),
     }));
   };
 
@@ -215,7 +222,9 @@ export function ShipmentFormModal({
     }
 
     if (values.status === "출고준비" || values.status === "출고완료") {
-      const items = Object.values(catRows).flat().filter((r) => r.equipmentId);
+      const items = Object.values(catRows)
+        .flat()
+        .filter((r) => r.equipmentId);
       if (items.length === 0) {
         setItemsError("출고 장비를 1개 이상 추가하세요");
         hasError = true;
@@ -257,9 +266,7 @@ export function ShipmentFormModal({
       for (const [key, count] of Object.entries(actualCountMap)) {
         if (count > 0) {
           const [cat, type] = key.split("|");
-          mismatchMessages.push(
-            `${cat}${type ? `·${type}` : ""}: 요청 0개 / 실제 ${count}개`
-          );
+          mismatchMessages.push(`${cat}${type ? `·${type}` : ""}: 요청 0개 / 실제 ${count}개`);
         }
       }
 
@@ -278,7 +285,7 @@ export function ShipmentFormModal({
     const items = Object.values(catRows)
       .flat()
       .filter((r) => r.equipmentId)
-      .map((r) => ({ equipmentId: r.equipmentId }));
+      .map((r) => ({ equipmentId: r.equipmentId, installLocation: r.installLocation }));
 
     const requestItems = requestRows
       .filter((r) => r.category && r.equipmentType)
@@ -387,21 +394,13 @@ export function ShipmentFormModal({
 
             {/* 납품 요청일 - 요청 상태에서만 입력, 이후엔 잠금 */}
             <FormField label="납품 요청일" hint="현장 납품 희망일">
-              <Input
-                type="date"
-                disabled={requestLocked}
-                {...register("deliveryRequestedAt")}
-              />
+              <Input type="date" disabled={requestLocked} {...register("deliveryRequestedAt")} />
             </FormField>
           </Grid2>
 
           <Grid2>
             {/* 출고 담당자 - 출고준비/완료에서만 활성화 */}
-            <FormField
-              label="출고 담당자"
-              required={needShipper}
-              hint="기술지원팀"
-            >
+            <FormField label="출고 담당자" required={needShipper} hint="기술지원팀">
               <Controller
                 control={control}
                 name="shipperName"
@@ -519,8 +518,7 @@ export function ShipmentFormModal({
                       {requestRows.map((row) => {
                         const availableTypes = (typesByCategory[row.category] ?? []).filter(
                           (t) =>
-                            !takenRequestKeys.has(`${row.category}|${t}`) ||
-                            t === row.equipmentType
+                            !takenRequestKeys.has(`${row.category}|${t}`) || t === row.equipmentType
                         );
                         return (
                           <div
@@ -694,7 +692,7 @@ export function ShipmentFormModal({
                           .map((r) => r.equipmentId)
                       );
                       return (
-                        <Row key={row._key} gap="sm">
+                        <Row key={row._key} gap="sm" style={{ alignItems: "center" }}>
                           <div
                             style={{
                               width: "28px",
@@ -710,7 +708,9 @@ export function ShipmentFormModal({
                             <Select
                               value={row.equipmentId}
                               onChange={(e) =>
-                                updateEquipmentRow(activeCategory, row._key, e.target.value)
+                                updateEquipmentRow(activeCategory, row._key, {
+                                  equipmentId: e.target.value,
+                                })
                               }
                             >
                               <option value="">장비 선택</option>
@@ -729,6 +729,18 @@ export function ShipmentFormModal({
                                 );
                               })}
                             </Select>
+                          </div>
+                          <div style={{ flex: 1, position: "relative" }}>
+                            <Input
+                              type="text"
+                              placeholder="설치 위치 (예: A동 3층)"
+                              value={row.installLocation}
+                              onChange={(e) =>
+                                updateEquipmentRow(activeCategory, row._key, {
+                                  installLocation: e.target.value,
+                                })
+                              }
+                            />
                           </div>
                           <Button
                             type="button"

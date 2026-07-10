@@ -104,9 +104,10 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS shipment_items (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    shipmentId  TEXT NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
-    equipmentId TEXT NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    shipmentId      TEXT NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+    equipmentId     TEXT NOT NULL,
+    installLocation TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS shipment_request_items (
@@ -140,6 +141,21 @@ db.exec(`
     developerName TEXT NOT NULL DEFAULT ''
   );
 `);
+
+// ── Schema migrations (idempotent ALTER TABLE) ────────────────────────────────
+const migrations: { sql: string; check: string }[] = [
+  {
+    check: "installLocation",
+    sql: "ALTER TABLE shipment_items ADD COLUMN installLocation TEXT NOT NULL DEFAULT ''",
+  },
+];
+
+for (const { sql, check } of migrations) {
+  const cols = db.pragma(`table_info(shipment_items)`) as { name: string }[];
+  if (!cols.some((c) => c.name === check)) {
+    db.exec(sql);
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

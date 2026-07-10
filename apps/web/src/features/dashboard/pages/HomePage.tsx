@@ -1,158 +1,649 @@
-import { Card, StatusPill, color, type SiteStatus } from "@facility/ui";
-import { useMemo } from "react";
-import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout";
-
-import "react-grid-layout/css/styles.css";
+import { Card, StatusPill, color } from "@facility/ui";
+import { useMemo, useRef, useState } from "react";
 
 import { useCompanies } from "@/features/companies/queries";
 import { useEquipmentList } from "@/features/equipment/queries";
 import { useShipments } from "@/features/shipments/queries";
 import { useSites } from "@/features/sites/queries";
-import { useUsers } from "@/features/users/queries";
 
-const KPI_LAYOUT = [
-  { i: "kpi-users", x: 0, y: 0, w: 3, h: 2 },
-  { i: "kpi-companies", x: 3, y: 0, w: 3, h: 2 },
-  { i: "kpi-sites", x: 6, y: 0, w: 3, h: 2 },
-  { i: "kpi-equipment", x: 9, y: 0, w: 3, h: 2 },
-  { i: "site-status", x: 0, y: 2, w: 6, h: 5 },
-  { i: "recent-shipments", x: 6, y: 2, w: 6, h: 5 },
-];
-
-function KpiCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
-  return (
-    <Card style={{ height: "100%" }}>
-      <div style={{ fontSize: 12, color: color.inkFaint }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6, color: color.ink }}>{value}</div>
-      {hint && <div style={{ fontSize: 11, color: color.inkFaint, marginTop: 4 }}>{hint}</div>}
-    </Card>
-  );
-}
+const BAR_COLORS = ["#2563EB", "#3B82F6", "#1D4ED8", "#60A5FA", "#1E40AF"];
 
 export default function HomePage() {
-  const { data: users = [] } = useUsers();
   const { data: companies = [] } = useCompanies();
   const { data: sites = [] } = useSites();
   const { data: equipment = [] } = useEquipmentList();
   const { data: shipments = [] } = useShipments();
 
-  const activeSites = sites.filter((s) => s.systemActive);
+  // 최근 출고 목록 (completedAt 기준 최신 5건)
+  const recentShipments = useMemo(() => {
+    return [...shipments]
+      .filter((s) => s.completedAt)
+      .sort((a, b) => (a.completedAt! > b.completedAt! ? -1 : 1))
+      .slice(0, 5);
+  }, [shipments]);
 
-  const statusCounts = useMemo(() => {
-    const counts: Partial<Record<string, number>> = {};
-    for (const s of sites) counts[s.status] = (counts[s.status] ?? 0) + 1;
-    return counts;
+  // 현장명 조회
+  const getSiteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "-";
+
+  // 출고 항목별 장비 타입 요약 (5종 초과 시 '외 N건')
+  const getEquipmentTypeSummary = (items: { equipmentId: string }[]): string => {
+    const typeCount: Record<string, number> = {};
+    for (const item of items) {
+      const eq = equipment.find((e) => e.id === item.equipmentId);
+      if (!eq) continue;
+      const key = `${eq.category}${eq.equipmentType ? ` ${eq.equipmentType}` : ""}`;
+      typeCount[key] = (typeCount[key] ?? 0) + 1;
+    }
+    const entries = Object.entries(typeCount);
+    if (entries.length === 0) return "-";
+    if (entries.length <= 5) {
+      return entries.map(([type, count]) => `${type} ${count}대`).join(" · ");
+    }
+    const shown = entries.slice(0, 4);
+    const restCount = entries.slice(4).reduce((sum, [, c]) => sum + c, 0);
+    return shown.map(([type, count]) => `${type} ${count}대`).join(" · ") + ` · 외 ${restCount}건`;
+  };
+
+  // 건설사별 현장 리스트
+  const companySiteList = useMemo(() => {
+    return companies.map((company) => ({
+      company,
+      sites: sites
+        .filter((s) => s.companyId === company.id)
+        .sort((a, b) => (a.startDate > b.startDate ? -1 : 1)),
+    }));
+  }, [companies, sites]);
+
+  // 계약완료 현장 (startDate 최신순)
+  const contractedSites = useMemo(() => {
+    return [...sites]
+      .filter((s) => s.status === "계약완료")
+      .sort((a, b) => (a.startDate > b.startDate ? -1 : 1));
   }, [sites]);
 
-  const recent = [...shipments]
-    .sort((a, b) => (a.shipmentDate < b.shipmentDate ? 1 : -1))
-    .slice(0, 5);
-  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "-";
+  // 현장별 납품 장비 카운트 (출고완료 상태 shipment의 items 합산)
+  const siteEquipmentCounts = useMemo(() => {
+    return contractedSites.map((site) => {
+      const count = shipments
+        .filter((sh) => sh.siteId === site.id && sh.status === "출고완료")
+        .reduce((sum, sh) => sum + sh.items.length, 0);
+      return { name: site.name, companyId: site.companyId, count };
+    });
+  }, [contractedSites, shipments]);
 
-  const { width, containerRef } = useContainerWidth();
+  const maxEquipmentCount = useMemo(
+    () => Math.max(...siteEquipmentCounts.map((s) => s.count), 1),
+    [siteEquipmentCounts]
+  );
+
+  // 장비별 납품 현황 (출고완료 shipment 기준, 장비 카테고리+타입별 집계)
+  const equipmentDeliveryStats = useMemo(() => {
+    // key → { total, bySite: Map<siteId, count> }
+    const map = new Map<
+      string,
+      { category: string; equipmentType: string; total: number; bySite: Map<string, number> }
+    >();
+
+    for (const sh of shipments) {
+      if (sh.status !== "출고완료") continue;
+      for (const item of sh.items) {
+        const eq = equipment.find((e) => e.id === item.equipmentId);
+        if (!eq) continue;
+        const key = `${eq.category}__${eq.equipmentType ?? ""}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            category: eq.category,
+            equipmentType: eq.equipmentType ?? "",
+            total: 0,
+            bySite: new Map(),
+          });
+        }
+        const entry = map.get(key)!;
+        entry.total += 1;
+        entry.bySite.set(sh.siteId, (entry.bySite.get(sh.siteId) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(map.entries())
+      .map(([key, { category, equipmentType, total, bySite }]) => ({
+        key,
+        label: equipmentType ? `${category} ${equipmentType}` : category,
+        category,
+        equipmentType,
+        total,
+        bySite: Array.from(bySite.entries())
+          .map(([siteId, count]) => ({
+            siteName: sites.find((s) => s.id === siteId)?.name ?? "-",
+            count,
+          }))
+          .sort((a, b) => b.count - a.count),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [shipments, equipment, sites]);
+
+  const maxDeliveryCount = useMemo(
+    () => Math.max(...equipmentDeliveryStats.map((s) => s.total), 1),
+    [equipmentDeliveryStats]
+  );
+
+  const [tooltipKey, setTooltipKey] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  // 현장별 시스템 구축 현황 (계약완료 + systemActive=true, startDate 최신순)
+  const systemSites = useMemo(() => {
+    return [...sites]
+      .filter((s) => s.status === "계약완료" && s.systemActive)
+      .sort((a, b) => (a.startDate > b.startDate ? -1 : 1));
+  }, [sites]);
+
+  // 현장별 계약 예정 현황 (계약완료 아닌 현장, startDate 최신순)
+  const pendingSites = useMemo(() => {
+    return [...sites]
+      .filter((s) => s.status !== "계약완료")
+      .sort((a, b) => (a.startDate > b.startDate ? -1 : 1));
+  }, [sites]);
+
+  const getCompanyName = (companyId: string) =>
+    companies.find((c) => c.id === companyId)?.name ?? "-";
+
+  const buildDomainUrl = (domain?: string) => {
+    if (!domain) return null;
+    return domain.startsWith("http") ? domain : `https://${domain}`;
+  };
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>대시보드</h1>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: color.ink }}>대시보드</h1>
         <p style={{ fontSize: 13, color: color.inkMuted, margin: "4px 0 0" }}>종합 현황</p>
       </div>
 
-      <div ref={containerRef}>
-        <ResponsiveGridLayout
-          className="layout"
-          width={width}
-          layouts={{ lg: KPI_LAYOUT }}
-          breakpoints={{ lg: 1024, md: 768, sm: 480 }}
-          cols={{ lg: 12, md: 8, sm: 4 }}
-          rowHeight={44}
-          margin={[16, 16] as const}
-          dragConfig={{ cancel: ".no-drag" }}
-        >
-          <div key="kpi-users">
-            <KpiCard
-              label="사용자"
-              value={users.length}
-              hint={`사용중 ${users.filter((u) => u.active).length}명`}
-            />
-          </div>
-          <div key="kpi-companies">
-            <KpiCard label="건설사" value={companies.length} />
-          </div>
-          <div key="kpi-sites">
-            <KpiCard
-              label="진행중 현장"
-              value={activeSites.length}
-              hint={`전체 ${sites.length}건`}
-            />
-          </div>
-          <div key="kpi-equipment">
-            <KpiCard label="장비 마스터" value={equipment.length} hint="등록 품목" />
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          {/* 건설사별 현장 리스트 */}
+          <Card>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              건설사별 현장 리스트
+            </h3>
+            {companySiteList.length === 0 ? (
+              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>데이터가 없습니다.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {companySiteList.map(({ company, sites: cSites }) => (
+                  <div key={company.id}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: color.primary,
+                          display: "inline-block",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: color.ink }}>
+                        {company.name}
+                      </span>
+                      <span style={{ fontSize: 11, color: color.inkFaint }}>
+                        {cSites.length}개 현장
+                      </span>
+                    </div>
+                    {cSites.length === 0 ? (
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: color.inkFaint,
+                          margin: "0 0 0 14px",
+                        }}
+                      >
+                        등록된 현장이 없습니다.
+                      </p>
+                    ) : (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                          marginLeft: 14,
+                        }}
+                      >
+                        {cSites.map((site) => (
+                          <div
+                            key={site.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              fontSize: 12,
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              background: color.surfaceAlt,
+                              gap: 8,
+                            }}
+                          >
+                            <span
+                              style={{
+                                color: color.ink,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {site.name}
+                            </span>
+                            <StatusPill status={site.status} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
 
-          <div key="site-status">
-            <Card style={{ height: "100%", overflow: "auto" }} className="no-drag">
-              <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>현장 상태 분포</h3>
+          {/* 현장별 계약 예정 현황 */}
+          <Card>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              현장별 계약 예정 현황
+            </h3>
+            {pendingSites.length === 0 ? (
+              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                계약 예정 현장이 없습니다.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {pendingSites.map((site) => (
+                  <div
+                    key={site.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontSize: 13,
+                      padding: "10px 12px",
+                      borderRadius: 6,
+                      border: `1px solid ${color.border}`,
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                      <span style={{ fontWeight: 600, color: color.ink }}>{site.name}</span>
+                      <span style={{ fontSize: 11, color: color.inkFaint }}>
+                        {getCompanyName(site.companyId)} · {site.startDate}
+                      </span>
+                    </div>
+                    <StatusPill status={site.status} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* 현장별 시스템 구축 현황 */}
+          <Card>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              현장별 시스템 구축 현황
+            </h3>
+            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
+              계약 완료 · 시스템 사용 현장 기준 (최신순)
+            </p> */}
+            {systemSites.length === 0 ? (
+              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                해당 현장이 없습니다.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {systemSites.map((site) => {
+                  const domainUrl = buildDomainUrl(site.systemDomain);
+                  return (
+                    <div
+                      key={site.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        fontSize: 13,
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        border: `1px solid ${color.border}`,
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                        <span style={{ fontWeight: 600, color: color.ink }}>{site.name}</span>
+                        <span style={{ fontSize: 11, color: color.inkFaint }}>
+                          {getCompanyName(site.companyId)} · {site.startDate}
+                          {site.systemDomain && (
+                            <span style={{ marginLeft: 4 }}>· {site.systemDomain}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        {site.systemStatus && <StatusPill status={site.systemStatus} />}
+                        {domainUrl ? (
+                          <a
+                            href={domainUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 3,
+                              fontSize: 12,
+                              color: color.primary,
+                              textDecoration: "none",
+                              padding: "3px 8px",
+                              borderRadius: 4,
+                              border: `1px solid ${color.primary}`,
+                              fontWeight: 500,
+                              transition: "background 0.15s",
+                            }}
+                          >
+                            바로가기 ↗
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: 11, color: color.inkFaint }}>도메인 미설정</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          {/* 현장별 납품 장비 카운트 현황 */}
+          <Card>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              현장별 납품 장비 카운트 현황
+            </h3>
+            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
+              계약 완료 현장 기준 · 출고 완료된 장비 수량
+            </p> */}
+            {siteEquipmentCounts.length === 0 ? (
+              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                계약 완료 현장이 없습니다.
+              </p>
+            ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(Object.keys(statusCounts) as SiteStatus[])
-                  .filter((k) => statusCounts[k]! > 0)
-                  .map((status) => (
-                    <div key={status} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 90 }}>
-                        <StatusPill status={status} />
+                {siteEquipmentCounts.map((item, idx) => {
+                  const pct = maxEquipmentCount > 0 ? (item.count / maxEquipmentCount) * 100 : 0;
+                  const barColor = BAR_COLORS[idx % BAR_COLORS.length]!;
+                  return (
+                    <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div
+                        style={{
+                          width: 180,
+                          flexShrink: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: color.ink,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={item.name}
+                        >
+                          {item.name}
+                        </span>
+                        <span style={{ fontSize: 11, color: color.inkFaint }}>
+                          {getCompanyName(item.companyId)}
+                        </span>
                       </div>
                       <div
                         style={{
                           flex: 1,
+                          height: 10,
                           background: color.surfaceAlt,
-                          borderRadius: 4,
-                          height: 8,
+                          borderRadius: 5,
+                          overflow: "hidden",
                         }}
                       >
                         <div
                           style={{
-                            width: `${sites.length ? ((statusCounts[status] ?? 0) / sites.length) * 100 : 0}%`,
-                            background: color.primary,
-                            height: 8,
-                            borderRadius: 4,
+                            width: `${pct}%`,
+                            height: "100%",
+                            background: barColor,
+                            borderRadius: 5,
+                            transition: "width 0.4s ease",
+                            minWidth: item.count > 0 ? 4 : 0,
                           }}
                         />
                       </div>
-                      <div style={{ width: 24, textAlign: "right", fontSize: 12 }}>
-                        {statusCounts[status] ?? 0}
-                      </div>
+                      <span
+                        style={{
+                          width: 36,
+                          textAlign: "right",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: item.count > 0 ? barColor : color.inkFaint,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {item.count}대
+                      </span>
                     </div>
-                  ))}
+                  );
+                })}
               </div>
-            </Card>
-          </div>
-
-          <div key="recent-shipments">
-            <Card style={{ height: "100%", overflow: "auto" }} className="no-drag">
-              <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>최근 출고</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {recent.length === 0 && (
-                  <p style={{ fontSize: 13, color: color.inkFaint }}>출고 이력이 없습니다.</p>
-                )}
-                {recent.map((r) => (
+            )}
+          </Card>
+          {/* 장비별 납품 현황 */}
+          <Card style={{ position: "relative" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              장비별 납품 현황
+            </h3>
+            {/* <p style={{ fontSize: 12, color: color.inkFaint, margin: "0 0 16px" }}>
+              출고 완료 기준 · 행에 마우스를 올리면 현장별 수량을 확인할 수 있습니다
+            </p> */}
+            {equipmentDeliveryStats.length === 0 ? (
+              <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                출고 완료 데이터가 없습니다.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {equipmentDeliveryStats.map((item, idx) => {
+                  const pct = (item.total / maxDeliveryCount) * 100;
+                  const barColor = BAR_COLORS[idx % BAR_COLORS.length]!;
+                  const isHovered = tooltipKey === item.key;
+                  return (
+                    <div
+                      key={item.key}
+                      style={{ display: "flex", alignItems: "center", gap: 12, cursor: "default" }}
+                      onMouseEnter={(e) => {
+                        setTooltipKey(item.key);
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setTooltipPos({ x: e.clientX, y: rect.bottom + 6 });
+                      }}
+                      onMouseMove={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setTooltipPos({ x: e.clientX, y: rect.bottom + 6 });
+                      }}
+                      onMouseLeave={() => setTooltipKey(null)}
+                    >
+                      <span
+                        style={{
+                          width: 140,
+                          flexShrink: 0,
+                          fontSize: 12,
+                          fontWeight: isHovered ? 700 : 600,
+                          color: isHovered ? barColor : color.ink,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          transition: "color 0.15s",
+                        }}
+                        title={item.label}
+                      >
+                        {item.label}
+                      </span>
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 10,
+                          background: color.surfaceAlt,
+                          borderRadius: 5,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${pct}%`,
+                            height: "100%",
+                            background: isHovered ? barColor : barColor + "CC",
+                            borderRadius: 5,
+                            transition: "background 0.15s, width 0.4s ease",
+                            minWidth: item.total > 0 ? 4 : 0,
+                          }}
+                        />
+                      </div>
+                      <span
+                        style={{
+                          width: 36,
+                          textAlign: "right",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isHovered ? barColor : color.inkFaint,
+                          flexShrink: 0,
+                          transition: "color 0.15s",
+                        }}
+                      >
+                        {item.total}대
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* 툴팁 */}
+            {tooltipKey &&
+              (() => {
+                const hovered = equipmentDeliveryStats.find((s) => s.key === tooltipKey);
+                if (!hovered) return null;
+                return (
+                  <div
+                    ref={tooltipRef}
+                    style={{
+                      position: "fixed",
+                      left: tooltipPos.x,
+                      top: tooltipPos.y,
+                      zIndex: 100,
+                      background: color.ink,
+                      color: "#fff",
+                      borderRadius: 8,
+                      padding: "10px 14px",
+                      fontSize: 12,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                      pointerEvents: "none",
+                      minWidth: 160,
+                      transform: "translateX(-50%)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
+                      {hovered.label}
+                    </div>
+                    {hovered.bySite.map(({ siteName, count }) => (
+                      <div
+                        key={siteName}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 16,
+                          padding: "3px 0",
+                          borderBottom: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "rgba(255,255,255,0.75)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: 140,
+                          }}
+                        >
+                          {siteName}
+                        </span>
+                        <span style={{ fontWeight: 600, flexShrink: 0 }}>{count}대</span>
+                      </div>
+                    ))}
+                    <div
+                      style={{
+                        marginTop: 8,
+                        paddingTop: 6,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <span>합계</span>
+                      <span>{hovered.total}대</span>
+                    </div>
+                  </div>
+                );
+              })()}
+          </Card>
+          {/* 최근 출고 */}
+          <Card>
+            <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: color.ink }}>
+              최근 출고
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {recentShipments.length === 0 ? (
+                <p style={{ fontSize: 13, color: color.inkFaint, margin: 0 }}>
+                  출고 완료된 이력이 없습니다.
+                </p>
+              ) : (
+                recentShipments.map((r, idx) => (
                   <div
                     key={r.id}
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
+                      alignItems: "flex-start",
                       fontSize: 13,
-                      borderBottom: `1px solid ${color.border}`,
-                      paddingBottom: 8,
+                      borderBottom:
+                        idx < recentShipments.length - 1 ? `1px solid ${color.border}` : "none",
+                      padding: "10px 0",
+                      gap: 12,
                     }}
                   >
-                    <span>{siteName(r.siteId)}</span>
-                    <span style={{ color: color.inkFaint }}>{r.shipmentDate}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                      <span style={{ fontWeight: 600, color: color.ink }}>
+                        {getSiteName(r.siteId)}
+                      </span>
+                      <span style={{ fontSize: 11, color: color.inkFaint, lineHeight: 1.5 }}>
+                        {getEquipmentTypeSummary(r.items)}
+                      </span>
+                    </div>
+                    <span style={{ color: color.inkFaint, whiteSpace: "nowrap", fontSize: 12 }}>
+                      {r.completedAt}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        </ResponsiveGridLayout>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

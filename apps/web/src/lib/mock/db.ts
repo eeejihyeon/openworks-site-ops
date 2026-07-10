@@ -98,6 +98,7 @@ export interface ShipmentRequestItem {
 
 export interface ShipmentItem {
   equipmentId: string;
+  installLocation?: string; // 설치 위치
 }
 
 export interface ShipmentRow {

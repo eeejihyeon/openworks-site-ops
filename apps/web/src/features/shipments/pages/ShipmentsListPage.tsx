@@ -93,7 +93,11 @@ export default function ShipmentsListPage() {
 
   const columns: Column<ShipmentRow>[] = [
     { key: "shipmentNo", header: "출고번호", render: (r) => <CodeTag>{r.shipmentNo}</CodeTag> },
-    { key: "status", header: "상태", render: (r) => <StatusBadge status={r.status as ShipmentStatus | undefined} /> },
+    {
+      key: "status",
+      header: "상태",
+      render: (r) => <StatusBadge status={r.status as ShipmentStatus | undefined} />,
+    },
     { key: "site", header: "현장", render: (r) => siteName(r.siteId) },
     {
       key: "deliveryRequestedAt",
@@ -245,6 +249,67 @@ export default function ShipmentsListPage() {
                 <strong style={{ fontWeight: 700, marginLeft: "2px" }}>{count}</strong>
               </span>
             ))}
+          </div>
+        );
+      },
+    },
+    {
+      key: "installLocation",
+      header: "설치 위치",
+      render: (r) => {
+        // items에서 고유 설치 위치만 추출
+        const locations = Array.from(
+          new Set(
+            (r.items ?? [])
+              .map((it) => it.installLocation?.trim())
+              .filter((loc): loc is string => !!loc)
+          )
+        );
+        if (locations.length === 0) return <span style={{ color: color.inkFaint }}>-</span>;
+
+        const visible = locations.slice(0, 2);
+        const rest = locations.length - visible.length;
+        return (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+            {visible.map((loc) => (
+              <span
+                key={loc}
+                title={loc}
+                style={{
+                  display: "inline-block",
+                  maxWidth: "120px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  padding: "2px 8px",
+                  borderRadius: radius.pill,
+                  background: "#F0FDF4",
+                  color: "#166534",
+                  border: "1px solid #BBF7D0",
+                }}
+              >
+                {loc}
+              </span>
+            ))}
+            {rest > 0 && (
+              <span
+                title={locations.slice(2).join(", ")}
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: color.inkMuted,
+                  padding: "2px 7px",
+                  borderRadius: radius.pill,
+                  background: color.surfaceAlt,
+                  border: `1px solid ${color.border}`,
+                  cursor: "default",
+                }}
+              >
+                +{rest}
+              </span>
+            )}
           </div>
         );
       },

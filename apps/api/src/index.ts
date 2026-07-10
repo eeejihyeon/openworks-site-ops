@@ -35,6 +35,11 @@ app.use("/api/shipments", requireAuth, shipmentsRoutes);
 // /api/sites/:siteId/requirements 및 /api/sites/:siteId/system-info는 sitesRoutes 내부에서 처리
 app.use("/api/sites", requireAuth, sitesRoutes);
 
+// ── Health check ──────────────────────────────────────────────────────────────
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 // ── Static (production: React 빌드 결과물 서빙) ────────────────────────────────
 if (IS_PROD) {
   const WEB_DIST = path.join(process.cwd(), "apps", "web", "dist");
