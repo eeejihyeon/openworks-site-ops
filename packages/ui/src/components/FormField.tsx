@@ -4,7 +4,7 @@ import { color } from "../theme";
 import { ErrorText, FieldGroup, Label } from "./FormControls";
 
 export interface FormFieldProps {
-  label: string;
+  label?: string;
   htmlFor?: string;
   required?: boolean;
   error?: string;
@@ -15,10 +15,12 @@ export interface FormFieldProps {
 export function FormField({ label, htmlFor, required, error, hint, children }: FormFieldProps) {
   return (
     <FieldGroup>
-      <Label htmlFor={htmlFor}>
-        {label}
-        {required && <span style={{ color: color.danger }}> *</span>}
-      </Label>
+      {label != null && (
+        <Label htmlFor={htmlFor}>
+          {label}
+          {required && <span style={{ color: color.danger }}> *</span>}
+        </Label>
+      )}
       {children}
       {error ? (
         <ErrorText>{error}</ErrorText>

@@ -241,7 +241,7 @@ export default function EquipmentListPage() {
       .find((s) => s.items.some((item) => item.equipmentId === eqId));
     if (!shipment) return null;
     const site = sites.find((s) => s.id === shipment.siteId);
-    return { date: shipment.shipmentDate, siteName: site?.name ?? "알 수 없음" };
+    return { date: shipment.completedAt ?? shipment.preparedAt ?? shipment.requestedAt, siteName: site?.name ?? "알 수 없음" };
   };
 
   const equipmentHasShipment = (eqId: string) =>

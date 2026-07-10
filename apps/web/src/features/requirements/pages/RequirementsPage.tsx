@@ -105,7 +105,7 @@ export default function RequirementsPage() {
                 </div>
                 <div>
                   <div style={{ color: color.inkFaint, fontSize: 12 }}>현장 담당자</div>
-                  <div>{site.siteManager}</div>
+                  <div>{site.siteManagers?.map((m) => m.name).join(", ")}</div>
                 </div>
                 <div>
                   <div style={{ color: color.inkFaint, fontSize: 12 }}>기간</div>

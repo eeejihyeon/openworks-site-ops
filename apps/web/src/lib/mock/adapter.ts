@@ -2,7 +2,7 @@ import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from "ax
 
 import { http } from "../http";
 
-import { db, genId, todayStr } from "./db";
+import { db, genId, todayStr, type EquipmentRow } from "./db";
 
 const LATENCY = 220;
 
@@ -175,7 +175,7 @@ function isEquipmentInOtherShipment(equipmentId: string, excludeShipmentId?: str
 function markEquipmentStatus(equipmentIds: string[], status: "출고준비" | "출고완료") {
   for (const eqId of equipmentIds) {
     const idx = db.equipment.findIndex((e) => e.id === eqId);
-    if (idx !== -1) db.equipment[idx] = { ...db.equipment[idx], status };
+    if (idx !== -1) db.equipment[idx] = { ...db.equipment[idx], status } as EquipmentRow;
   }
 }
 
@@ -184,7 +184,7 @@ function revertEquipmentStatus(equipmentIds: string[], excludeShipmentId?: strin
   for (const eqId of equipmentIds) {
     if (isEquipmentInOtherShipment(eqId, excludeShipmentId)) continue;
     const idx = db.equipment.findIndex((e) => e.id === eqId);
-    if (idx !== -1) db.equipment[idx] = { ...db.equipment[idx], status: "입고" };
+    if (idx !== -1) db.equipment[idx] = { ...db.equipment[idx], status: "입고" } as EquipmentRow;
   }
 }
 
